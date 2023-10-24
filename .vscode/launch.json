@@ -1,0 +1,47 @@
+{
+    // Use IntelliSense to learn about possible attributes.
+    // Hover to view descriptions of existing attributes.
+    // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug executable 'e4e-deduplicator'",
+            "cargo": {
+                "args": [
+                    "build",
+                    "--bin=e4e-deduplicator",
+                    "--package=e4e-deduplicator"
+                ],
+                "filter": {
+                    "name": "e4e-deduplicator",
+                    "kind": "bin"
+                }
+            },
+            "args": [
+                "-j", "test", "-w", ".", "-i", ".gitignore"
+            ],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug unit tests in executable 'e4e-deduplicator'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--bin=e4e-deduplicator",
+                    "--package=e4e-deduplicator"
+                ],
+                "filter": {
+                    "name": "e4e-deduplicator",
+                    "kind": "bin"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        }
+    ]
+}
