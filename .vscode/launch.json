@@ -20,7 +20,7 @@
                 }
             },
             "args": [
-                "-j", "test", "-w", ".", "-i", ".gitignore"
+                "-j", "test", "-w", ".", "-i", "dedup_ignore.txt"
             ],
             "cwd": "${workspaceFolder}"
         },
