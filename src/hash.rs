@@ -48,7 +48,7 @@ mod tests {
     use super::{sha256_digest, md5_digest};
     use std::path::Path;
 
-    const TEST_FILE: &str = "m71-2014.xyz";
+    const TEST_FILE: &str = "README.md";
     #[test]
     fn test_sha256() {
         let path_to_test = Path::new(TEST_FILE);
