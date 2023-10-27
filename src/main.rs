@@ -1,18 +1,25 @@
-use clap::{Parser, ArgAction};
+use clap::{ArgAction, Parser};
 use directories::ProjectDirs;
-use std::{path::{PathBuf, Path}, io::Stdout, fs::{File, create_dir_all}, io::prelude::*};
+use std::boxed::Box;
+use std::collections::hash_set::HashSet;
+use std::collections::HashMap;
+use std::fs::read_to_string;
+use std::io::BufWriter;
+use std::{
+    fs::{create_dir_all, File},
+    io::Stdout,
+    io::{prelude::*, stdout},
+    path::{Path, PathBuf},
+};
 use walkdir::{IntoIter, WalkDir};
 mod file_filter;
 use file_filter::file_filter::FileFilter;
 mod hash;
 use hash::md5_digest;
-use std::collections::HashMap;
-use std::collections::hash_set::HashSet;
+use pbr::ProgressBar;
 #[allow(unused_imports)]
 use rayon::prelude::*;
-use serde::{Serialize, Deserialize};
-use std::fs::read_to_string;
-use pbr::ProgressBar;
+use serde::{Deserialize, Serialize};
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about=None)]
@@ -28,12 +35,15 @@ struct Args {
 
     #[arg(action=ArgAction::SetTrue, short, long)]
     clear_cache: bool,
+
+    #[arg(short, long, required = false, default_value = "stdout")]
+    analysis_dest: String,
 }
 
 #[derive(Serialize, Deserialize)]
 struct DataSignature {
     hash: String,
-    files: Vec<String>
+    files: Vec<String>,
 }
 
 fn main() {
@@ -61,9 +71,9 @@ fn main() {
     };
 
     let walker: IntoIter = WalkDir::new(working_dir.clone()).into_iter();
-    let mut progress_bar: ProgressBar<Stdout> = ProgressBar::new(walker.count().try_into().unwrap());
+    let mut progress_bar: ProgressBar<Stdout> =
+        ProgressBar::new(walker.count().try_into().unwrap());
     let walker: IntoIter = WalkDir::new(working_dir).into_iter();
-    
 
     let mut hashes: HashMap<String, HashSet<String>> = HashMap::new();
 
@@ -85,14 +95,29 @@ fn main() {
         if !hashes.contains_key(&digest) {
             hashes.insert(digest.clone(), HashSet::new());
         }
-        hashes.get_mut(&digest).unwrap().insert(entry.path().canonicalize().unwrap().display().to_string());
+        hashes
+            .get_mut(&digest)
+            .unwrap()
+            .insert(entry.path().canonicalize().unwrap().display().to_string());
     }
+
+    let mut output_writer: BufWriter<Box<dyn Write>> =
+        BufWriter::new(match args.analysis_dest.as_str() {
+            "stdout" => Box::new(stdout()),
+            path => Box::new(File::create(path).unwrap()),
+        });
 
     for (hash, files) in &hashes {
         if files.len() > 1 {
-            println!("File signature {} discovered {} times:", hash, files.len());
+            writeln!(
+                &mut output_writer,
+                "File signature {} discovered {} times:",
+                hash,
+                files.len()
+            )
+            .unwrap();
             for file in files {
-                println!("\t{}", file);
+                writeln!(&mut output_writer, "\t{}", file).unwrap();
             }
         }
     }
@@ -100,7 +125,11 @@ fn main() {
     dump_job_data(&job_path, &hashes).expect("Failed to update job data");
 }
 
-fn compute_digest(entry: Result<walkdir::DirEntry, walkdir::Error>, ignore_filter: &FileFilter, pb: &mut ProgressBar<Stdout>) -> Option<(walkdir::DirEntry, String)> {
+fn compute_digest(
+    entry: Result<walkdir::DirEntry, walkdir::Error>,
+    ignore_filter: &FileFilter,
+    pb: &mut ProgressBar<Stdout>,
+) -> Option<(walkdir::DirEntry, String)> {
     pb.inc();
     let entry = match entry {
         Err(_) => return None,
@@ -120,29 +149,42 @@ fn compute_digest(entry: Result<walkdir::DirEntry, walkdir::Error>, ignore_filte
     Some((entry, digest))
 }
 
-fn load_job_data(job_path: &Path, current_hashes: &mut HashMap<String, HashSet<String>>) -> Result<(),std::io::Error> {
+fn load_job_data(
+    job_path: &Path,
+    current_hashes: &mut HashMap<String, HashSet<String>>,
+) -> Result<(), std::io::Error> {
     let job_data = match read_to_string(job_path) {
         Err(err) => return Err(err),
-        Ok(data) => data
+        Ok(data) => data,
     };
     let data: Vec<DataSignature> = serde_json::from_str(&job_data)?;
     for entry in data {
         current_hashes.insert(entry.hash.clone(), HashSet::from_iter(entry.files));
     }
-    return Ok(())
+    return Ok(());
 }
 
-fn dump_job_data(job_path: &Path, current_hashes: &HashMap<String, HashSet<String>>) -> Result<(), std::io::Error> {
+fn dump_job_data(
+    job_path: &Path,
+    current_hashes: &HashMap<String, HashSet<String>>,
+) -> Result<(), std::io::Error> {
     let mut json_data: Vec<DataSignature> = Vec::new();
     for (hash, files) in current_hashes {
-        json_data.push(DataSignature { hash: hash.clone(), files: Vec::from_iter(files.clone()) });
+        json_data.push(DataSignature {
+            hash: hash.clone(),
+            files: Vec::from_iter(files.clone()),
+        });
     }
     let json_str = serde_json::to_string_pretty(&json_data).expect("Failed to serialize data");
-    let job_path_parent = job_path.parent().expect("Unable to find job path directory");
-    if !job_path_parent.exists(){
+    let job_path_parent = job_path
+        .parent()
+        .expect("Unable to find job path directory");
+    if !job_path_parent.exists() {
         create_dir_all(job_path_parent).expect("Unable to create job file directory");
     }
     let mut handle = File::create(job_path).expect("Failed to open job file for writing");
-    handle.write_all(json_str.as_bytes()).expect("Failed to write data to job file");
+    handle
+        .write_all(json_str.as_bytes())
+        .expect("Failed to write data to job file");
     return Ok(());
 }
