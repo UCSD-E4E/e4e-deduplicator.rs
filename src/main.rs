@@ -1,4 +1,4 @@
-use clap::Parser;
+use clap::{Parser, ArgAction};
 use directories::ProjectDirs;
 use std::{path::{PathBuf, Path}, io::Stdout, fs::{File, create_dir_all}, io::prelude::*};
 use walkdir::{IntoIter, WalkDir};
@@ -25,6 +25,9 @@ struct Args {
 
     #[arg(short, long)]
     ignore_file: PathBuf,
+
+    #[arg(action=ArgAction::SetTrue, short, long)]
+    clear_cache: bool,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -64,8 +67,10 @@ fn main() {
 
     let mut hashes: HashMap<String, HashSet<String>> = HashMap::new();
 
-    if job_path.exists() {
-        load_job_data(&job_path, &mut hashes).expect("Failed to load job data");
+    if !args.clear_cache {
+        if job_path.exists() {
+            load_job_data(&job_path, &mut hashes).expect("Failed to load job data");
+        }
     }
 
     let parallel_iterator = walker.map(|x| compute_digest(x, &ignore_filter, &mut progress_bar));

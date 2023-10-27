@@ -2,7 +2,7 @@ use std::fs::File;
 use std::path::Path;
 use std::io::{BufReader, Error, Read};
 use sha2::{Digest, Sha256};
-use md5::{Md5};
+use md5::Md5;
 
 const BLOCK_SIZE: usize = 1024 * 1024;
 
