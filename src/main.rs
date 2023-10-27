@@ -1,6 +1,6 @@
 use clap::Parser;
 use directories::ProjectDirs;
-use std::path::{PathBuf, Path};
+use std::{path::{PathBuf, Path}, io::Stdout, fs::{File, create_dir_all}, io::prelude::*};
 use walkdir::{IntoIter, WalkDir};
 mod file_filter;
 use file_filter::file_filter::FileFilter;
@@ -12,6 +12,7 @@ use std::collections::hash_set::HashSet;
 use rayon::prelude::*;
 use serde::{Serialize, Deserialize};
 use std::fs::read_to_string;
+use pbr::ProgressBar;
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about=None)]
@@ -56,7 +57,10 @@ fn main() {
         Err(_) => return,
     };
 
+    let walker: IntoIter = WalkDir::new(working_dir.clone()).into_iter();
+    let mut progress_bar: ProgressBar<Stdout> = ProgressBar::new(walker.count().try_into().unwrap());
     let walker: IntoIter = WalkDir::new(working_dir).into_iter();
+    
 
     let mut hashes: HashMap<String, HashSet<String>> = HashMap::new();
 
@@ -64,9 +68,9 @@ fn main() {
         load_job_data(&job_path, &mut hashes).expect("Failed to load job data");
     }
 
-
-    let parallel_iterator = walker.map(|x| compute_digest(x, &ignore_filter));
+    let parallel_iterator = walker.map(|x| compute_digest(x, &ignore_filter, &mut progress_bar));
     let digest_results: Vec<Option<(walkdir::DirEntry, String)>> = parallel_iterator.collect();
+    progress_bar.finish();
 
     for result in digest_results {
         let (entry, digest) = match result {
@@ -78,9 +82,21 @@ fn main() {
         }
         hashes.get_mut(&digest).unwrap().insert(entry.path().canonicalize().unwrap().display().to_string());
     }
+
+    for (hash, files) in &hashes {
+        if files.len() > 1 {
+            println!("File signature {} discovered {} times:", hash, files.len());
+            for file in files {
+                println!("\t{}", file);
+            }
+        }
+    }
+
+    dump_job_data(&job_path, &hashes).expect("Failed to update job data");
 }
 
-fn compute_digest(entry: Result<walkdir::DirEntry, walkdir::Error>, ignore_filter: &FileFilter) -> Option<(walkdir::DirEntry, String)> {
+fn compute_digest(entry: Result<walkdir::DirEntry, walkdir::Error>, ignore_filter: &FileFilter, pb: &mut ProgressBar<Stdout>) -> Option<(walkdir::DirEntry, String)> {
+    pb.inc();
     let entry = match entry {
         Err(_) => return None,
         Ok(entry) => entry,
@@ -99,7 +115,29 @@ fn compute_digest(entry: Result<walkdir::DirEntry, walkdir::Error>, ignore_filte
     Some((entry, digest))
 }
 
-fn load_job_data(job_path: &Path, current_hashes: &mut HashMap<String, HashSet<String>>) -> Result<(),()> {
-    let job_data = read_to_string(job_path);
+fn load_job_data(job_path: &Path, current_hashes: &mut HashMap<String, HashSet<String>>) -> Result<(),std::io::Error> {
+    let job_data = match read_to_string(job_path) {
+        Err(err) => return Err(err),
+        Ok(data) => data
+    };
+    let data: Vec<DataSignature> = serde_json::from_str(&job_data)?;
+    for entry in data {
+        current_hashes.insert(entry.hash.clone(), HashSet::from_iter(entry.files));
+    }
     return Ok(())
+}
+
+fn dump_job_data(job_path: &Path, current_hashes: &HashMap<String, HashSet<String>>) -> Result<(), std::io::Error> {
+    let mut json_data: Vec<DataSignature> = Vec::new();
+    for (hash, files) in current_hashes {
+        json_data.push(DataSignature { hash: hash.clone(), files: Vec::from_iter(files.clone()) });
+    }
+    let json_str = serde_json::to_string_pretty(&json_data).expect("Failed to serialize data");
+    let job_path_parent = job_path.parent().expect("Unable to find job path directory");
+    if !job_path_parent.exists(){
+        create_dir_all(job_path_parent).expect("Unable to create job file directory");
+    }
+    let mut handle = File::create(job_path).expect("Failed to open job file for writing");
+    handle.write_all(json_str.as_bytes()).expect("Failed to write data to job file");
+    return Ok(());
 }
