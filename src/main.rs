@@ -95,10 +95,17 @@ fn main() {
         if !hashes.contains_key(&digest) {
             hashes.insert(digest.clone(), HashSet::new());
         }
+        let absolute_path = match entry.path().canonicalize() {
+            Ok(path) => path,
+            Err(_) => {
+                dbg!(entry);
+                continue
+            }
+        };
         hashes
             .get_mut(&digest)
             .unwrap()
-            .insert(entry.path().canonicalize().unwrap().display().to_string());
+            .insert(absolute_path.display().to_string());
     }
 
     let mut output_writer: BufWriter<Box<dyn Write>> =
