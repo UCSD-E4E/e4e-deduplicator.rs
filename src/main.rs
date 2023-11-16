@@ -16,10 +16,11 @@ mod file_filter;
 use file_filter::file_filter::FileFilter;
 mod hash;
 use hash::md5_digest;
-use pbr::ProgressBar;
 #[allow(unused_imports)]
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
+use indicatif::ParallelProgressIterator;
+use rayon::iter::{ParallelIterator, IntoParallelIterator};
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about=None)]
@@ -71,9 +72,9 @@ fn main() {
     };
 
     let walker: IntoIter = WalkDir::new(working_dir.clone()).into_iter();
-    let mut progress_bar: ProgressBar<Stdout> =
-        ProgressBar::new(walker.count().try_into().unwrap());
-    let walker: IntoIter = WalkDir::new(working_dir).into_iter();
+    let num_files: usize = walker.count().try_into().unwrap();
+    println!("{} files to process", num_files);
+    let walker: Vec<Result<walkdir::DirEntry, walkdir::Error>> = WalkDir::new(working_dir).into_iter().collect();
 
     let mut hashes: HashMap<String, HashSet<String>> = HashMap::new();
 
@@ -82,10 +83,8 @@ fn main() {
             load_job_data(&job_path, &mut hashes).expect("Failed to load job data");
         }
     }
-
-    let parallel_iterator = walker.map(|x| compute_digest(x, &ignore_filter, &mut progress_bar));
+    let parallel_iterator = walker.into_par_iter().progress_count(num_files as u64).map(|x| compute_digest(x, &ignore_filter));
     let digest_results: Vec<Option<(walkdir::DirEntry, String)>> = parallel_iterator.collect();
-    progress_bar.finish();
 
     for result in digest_results {
         let (entry, digest) = match result {
@@ -135,9 +134,7 @@ fn main() {
 fn compute_digest(
     entry: Result<walkdir::DirEntry, walkdir::Error>,
     ignore_filter: &FileFilter,
-    pb: &mut ProgressBar<Stdout>,
 ) -> Option<(walkdir::DirEntry, String)> {
-    pb.inc();
     let entry = match entry {
         Err(_) => return None,
         Ok(entry) => entry,
