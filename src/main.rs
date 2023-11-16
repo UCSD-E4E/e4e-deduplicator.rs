@@ -7,7 +7,6 @@ use std::fs::read_to_string;
 use std::io::BufWriter;
 use std::{
     fs::{create_dir_all, File},
-    io::Stdout,
     io::{prelude::*, stdout},
     path::{Path, PathBuf},
 };
@@ -19,7 +18,7 @@ use hash::md5_digest;
 #[allow(unused_imports)]
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
-use indicatif::ParallelProgressIterator;
+use indicatif::{ParallelProgressIterator, ProgressStyle};
 use rayon::iter::{ParallelIterator, IntoParallelIterator};
 
 #[derive(Parser, Debug)]
@@ -83,7 +82,8 @@ fn main() {
             load_job_data(&job_path, &mut hashes).expect("Failed to load job data");
         }
     }
-    let parallel_iterator = walker.into_par_iter().progress_count(num_files as u64).map(|x| compute_digest(x, &ignore_filter));
+    let style = ProgressStyle::with_template("[{elapsed_precise}] {wide_bar} {pos:>7}/{len:7} {eta} {msg}").unwrap();
+    let parallel_iterator = walker.into_par_iter().progress_with_style(style).map(|x| compute_digest(x, &ignore_filter));
     let digest_results: Vec<Option<(walkdir::DirEntry, String)>> = parallel_iterator.collect();
 
     for result in digest_results {
