@@ -1,9 +1,9 @@
-use clap::{ArgAction, Parser};
+use clap::{ArgAction, Parser, Subcommand};
 use directories::ProjectDirs;
 use std::boxed::Box;
 use std::collections::hash_set::HashSet;
 use std::collections::HashMap;
-use std::fs::read_to_string;
+use std::fs::{read_to_string, remove_file};
 use std::io::BufWriter;
 use std::{
     fs::{create_dir_all, File},
@@ -21,9 +21,20 @@ use serde::{Deserialize, Serialize};
 use indicatif::{ParallelProgressIterator, ProgressStyle};
 use rayon::iter::{ParallelIterator, IntoParallelIterator};
 
+#[derive(Subcommand, Debug)]
+enum Commands {
+    /// Adds the file hashes of the working directory to the database
+    Analyze {},
+    /// Deletes any files that match existing entries in the database
+    Delete {},
+}
+
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about=None)]
 struct Args {
+    #[command(subcommand)]
+    command: Option<Commands>,
+
     #[arg(short, long)]
     job_name: String,
 
@@ -70,6 +81,10 @@ fn main() {
         Err(_) => return,
     };
 
+    if args.command.is_none() {
+        println!("No commands given!");
+    }
+
     let walker: IntoIter = WalkDir::new(working_dir.clone()).into_iter();
     let num_files: usize = walker.count().try_into().unwrap();
     println!("{} files to process", num_files);
@@ -86,14 +101,17 @@ fn main() {
     let parallel_iterator = walker.into_par_iter().progress_with_style(style).map(|x| compute_digest(x, &ignore_filter));
     let digest_results: Vec<Option<(walkdir::DirEntry, String)>> = parallel_iterator.collect();
 
-    for result in digest_results {
+    let mut output_writer: BufWriter<Box<dyn Write>> =
+        BufWriter::new(match args.analysis_dest.as_str() {
+            "stdout" => Box::new(stdout()),
+            path => Box::new(File::create(path).unwrap()),
+        });
+
+    for result in &digest_results {
         let (entry, digest) = match result {
             Some(value) => value,
             None => continue,
         };
-        if !hashes.contains_key(&digest) {
-            hashes.insert(digest.clone(), HashSet::new());
-        }
         let absolute_path = match entry.path().canonicalize() {
             Ok(path) => path,
             Err(_) => {
@@ -101,31 +119,59 @@ fn main() {
                 continue
             }
         };
-        hashes
-            .get_mut(&digest)
-            .unwrap()
-            .insert(absolute_path.display().to_string());
+        match &args.command {
+            Some(Commands::Analyze {  }) => {
+                if !hashes.contains_key(&*digest) {
+                    hashes.insert(digest.clone(), HashSet::new());
+                }
+                hashes
+                    .get_mut(&*digest)
+                    .unwrap()
+                    .insert(absolute_path.display().to_string());
+            }
+            Some(Commands::Delete {  }) => {
+                match hashes.get(&*digest) {
+                    Some(hash_set) => {
+                        if hash_set.contains(&absolute_path.display().to_string()) && hash_set.len() > 1{
+                            // this hash is unique, continue
+                            continue;
+                        }
+                    }
+                    None => continue,
+                }
+                let result = remove_file(&absolute_path);
+                match result {
+                    Ok(()) => {
+                        writeln!(&mut output_writer, "Deleted hash {} at {}", &*digest, absolute_path.display().to_string()).unwrap();
+                    }
+                    Err(..) => {
+                        print!("Failed to remove {}", absolute_path.display().to_string());
+                        continue;
+                    }
+                }
+            }
+            None => {}
+        }
     }
 
-    let mut output_writer: BufWriter<Box<dyn Write>> =
-        BufWriter::new(match args.analysis_dest.as_str() {
-            "stdout" => Box::new(stdout()),
-            path => Box::new(File::create(path).unwrap()),
-        });
-
-    for (hash, files) in &hashes {
-        if files.len() > 1 {
-            writeln!(
-                &mut output_writer,
-                "File signature {} discovered {} times:",
-                hash,
-                files.len()
-            )
-            .unwrap();
-            for file in files {
-                writeln!(&mut output_writer, "\t{}", file).unwrap();
+    match &args.command {
+        Some(Commands::Analyze {  }) => {
+            for (hash, files) in &hashes {
+                if files.len() > 1 {
+                    writeln!(
+                        &mut output_writer,
+                        "File signature {} discovered {} times:",
+                        hash,
+                        files.len()
+                    )
+                    .unwrap();
+                    for file in files {
+                        writeln!(&mut output_writer, "\t{}", file).unwrap();
+                    }
+                }
             }
         }
+        Some(Commands::Delete {  }) | None => {}
     }
 
     dump_job_data(&job_path, &hashes).expect("Failed to update job data");
