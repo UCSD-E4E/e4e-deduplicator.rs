@@ -49,6 +49,9 @@ struct Args {
 
     #[arg(short, long, required = false, default_value = "stdout")]
     analysis_dest: String,
+
+    #[arg(short, long, action=ArgAction::SetTrue)]
+    fs_test: bool
 }
 
 #[derive(Serialize, Deserialize)]
@@ -139,16 +142,17 @@ fn main() {
                     }
                     None => continue,
                 }
-                let result = remove_file(&absolute_path);
-                match result {
-                    Ok(()) => {
-                        writeln!(&mut output_writer, "Deleted hash {} at {}", &*digest, absolute_path.display().to_string()).unwrap();
-                    }
-                    Err(..) => {
-                        print!("Failed to remove {}", absolute_path.display().to_string());
-                        continue;
+                if !args.fs_test{
+                    let result = remove_file(&absolute_path);
+                    match result {
+                        Ok(()) => {}
+                        Err(..) => {
+                            print!("Failed to remove {}", absolute_path.display().to_string());
+                            continue;
+                        }
                     }
                 }
+                writeln!(&mut output_writer, "Deleted hash {} at {}", &*digest, absolute_path.display().to_string()).unwrap();
             }
             None => {}
         }
