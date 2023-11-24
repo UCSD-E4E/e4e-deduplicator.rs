@@ -7,7 +7,7 @@
         {
             "type": "lldb",
             "request": "launch",
-            "name": "Debug executable 'e4e-deduplicator'",
+            "name": "Debug executable 'e4e-deduplicator' analyze",
             "cargo": {
                 "args": [
                     "build",
@@ -20,7 +20,27 @@
                 }
             },
             "args": [
-                "-j", "test", "-w", "target", "-i", "dedup_ignore.txt"
+                "-j", "test", "-w", "test_reference", "-i", "dedup_ignore.txt", "analyze"
+            ],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug executable 'e4e-deduplicator' delete",
+            "cargo": {
+                "args": [
+                    "build",
+                    "--bin=e4e-deduplicator",
+                    "--package=e4e-deduplicator"
+                ],
+                "filter": {
+                    "name": "e4e-deduplicator",
+                    "kind": "bin"
+                }
+            },
+            "args": [
+                "-j", "test", "-w", "test_delete", "-i", "dedup_ignore.txt", "delete"
             ],
             "cwd": "${workspaceFolder}"
         },
