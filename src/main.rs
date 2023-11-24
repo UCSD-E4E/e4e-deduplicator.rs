@@ -1,13 +1,10 @@
 use clap::{ArgAction, Parser, Subcommand};
 use directories::ProjectDirs;
-use std::boxed::Box;
-use std::collections::hash_set::HashSet;
-use std::collections::HashMap;
-use std::fs::{read_to_string, remove_file};
-use std::io::BufWriter;
 use std::{
-    fs::{create_dir_all, File},
-    io::{prelude::*, stdout},
+    boxed::Box,
+    collections::{HashMap, hash_set::HashSet},
+    fs::{create_dir_all, File, read_to_string, remove_file},
+    io::{prelude::*, stdout, BufWriter},
     path::{Path, PathBuf},
 };
 use walkdir::{IntoIter, WalkDir};
@@ -133,26 +130,7 @@ fn main() {
                     .insert(absolute_path.display().to_string());
             }
             Some(Commands::Delete {  }) => {
-                match hashes.get(&*digest) {
-                    Some(hash_set) => {
-                        if hash_set.contains(&absolute_path.display().to_string()) && hash_set.len() > 1{
-                            // this hash is unique, continue
-                            continue;
-                        }
-                    }
-                    None => continue,
-                }
-                if !args.fs_test{
-                    let result = remove_file(&absolute_path);
-                    match result {
-                        Ok(()) => {}
-                        Err(..) => {
-                            print!("Failed to remove {}", absolute_path.display().to_string());
-                            continue;
-                        }
-                    }
-                }
-                writeln!(&mut output_writer, "Deleted hash {} at {}", &*digest, absolute_path.display().to_string()).unwrap();
+                delete_hash(&hashes, digest, absolute_path, args.fs_test, &mut output_writer);
             }
             None => {}
         }
@@ -179,6 +157,29 @@ fn main() {
     }
 
     dump_job_data(&job_path, &hashes).expect("Failed to update job data");
+}
+
+fn delete_hash(hashes: &HashMap<String, HashSet<String>>, digest: &String, absolute_path: PathBuf, fs_test: bool, mut output_writer: &mut BufWriter<Box<dyn Write>>) {
+    match hashes.get(&*digest) {
+        Some(hash_set) => {
+            if hash_set.contains(&absolute_path.display().to_string()) && hash_set.len() > 1{
+                // this hash is unique, continue
+                return;
+            }
+        }
+        None => return,
+    }
+    if !fs_test{
+        let result = remove_file(&absolute_path);
+        match result {
+            Ok(()) => {}
+            Err(..) => {
+                print!("Failed to remove {}", absolute_path.display().to_string());
+                return;
+            }
+        }
+    }
+    writeln!(&mut output_writer, "Deleted hash {} at {}", &*digest, absolute_path.display().to_string()).unwrap();
 }
 
 fn compute_digest(
